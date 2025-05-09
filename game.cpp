@@ -1,271 +1,418 @@
 //============================================================================
-// Name        : .cpp
+// Name        : RushHour.cpp
 // Author      : Dr. Sibt Ul Hussain
 // Version     :
 // Copyright   : (c) Reserved
-// Description : Basic 2D game...
+// Description : Basic 2D game with boundary and road constraints
 //============================================================================
 
 #ifndef RushHour_CPP_
 #define RushHour_CPP_
 #include "util.h"
 #include <iostream>
-#include<string>
-#include<cmath> // for basic math functions such as cos, sin, sqrt
+#include <string>
+#include <cmath>
 using namespace std;
 
-// seed the random numbers generator by current time (see the documentation of srand for further help)...
+// Struct to hold position coordinates
+struct Position {
+    int x, y;
+};
 
-/* Function sets canvas size (drawing area) in pixels...
- *  that is what dimensions (x and y) your game will have
- *  Note that the bottom-left coordinate has value (0,0) and top-right coordinate has value (width-1,height-1)
- * */
-void SetCanvasSize(int width, int height) {
-	glMatrixMode (GL_PROJECTION);
-	glLoadIdentity();
-	glOrtho(0, width, 0, height, -1, 1); // set the screen size to given width and height.
-	glMatrixMode (GL_MODELVIEW);
-	glLoadIdentity();
+// Function to generate a random position on a road
+Position getRandomRoadPosition() {
+    while (true) {
+        int x = rand() % 821; // 0 to 820
+        int y = rand() % 801; // 0 to 800
+        if ((x / 50 % 4 == 0) || (y / 50 % 4 == 0)) {
+            return {x, y};
+        }
+    }
 }
 
+// Function to get a random building square position (top-left corner, adjacent to road)
+Position getRandomBuildingPosition() {
+    // Building squares start at (50, 50), (250, 50), ..., (650, 50), etc.
+    int buildingX[] = {50, 250, 450, 650};
+    int buildingY[] = {50, 250, 450, 650};
+    int i = rand() % 4; // Random row
+    int j = rand() % 4; // Random column
+    return {buildingX[i], buildingY[j]};
+}
 
-int xI = 10, yI = 580;
+class Roads {
+public:
+    void drawRoads() {
+        // 17x17 grid, each cell 50x50 pixels
+        for (int i = 0; i < 17; ++i) {
+            for (int j = 0; j < 17; ++j) {
+                // Roads on rows and columns where index % 4 == 0
+                if (i % 4 == 0 || j % 4 == 0) {
+                    int x = i * 50;
+                    int y = j * 50;
+                    DrawSquare(x, y, 50, colors[WHITE]);
+                }
+            }
+        }
+    }
+};
+
+Roads roads;
+
+class FuelStation {
+private:
+    int x, y;
+public:
+    FuelStation(int startX, int startY) : x(startX), y(startY) {}
+
+    void draw() const {
+        DrawSquare(x, y, 50, colors[ORANGE]); // 50x50 orange square
+    }
+
+    int getX() const { return x; }
+    int getY() const { return y; }
+};
+
+class Vehicle {   
+public:
+    int x, y;
+    float* color;
+    Vehicle(int startX = 0, int startY = 0, float* startColor = colors[BLACK])
+        : x(startX), y(startY), color(startColor) {}
+
+    virtual void move() = 0;
+    virtual void draw() const = 0;
+};
+
+class PlayerCar : public Vehicle {
+protected:
+    float fuel;
+    float money;
+
+public:
+    PlayerCar(int startX = 0, int startY = 0, float* startColor = colors[BLACK], float startFuel = 100.0, float startMoney = 0.0)
+        : Vehicle(startX, startY, startColor), fuel(startFuel), money(startMoney) {}
+
+    virtual void pickUp() = 0;
+    virtual void dropOff() = 0;
+
+    void move() override {
+        // Move based on arrow keys handled in NonPrintableKeys
+    }
+
+    void draw() const override {
+        DrawRoundRect(x, y, 20, 40, colors[DARK_SEA_GREEN], 10);
+        DrawCircle(x + 2, y + 4, 3, colors[BLACK]);
+        DrawCircle(x + 2, y + 32, 3, colors[BLACK]);
+        DrawCircle(x + 18, y + 4, 3, colors[BLACK]);
+        DrawCircle(x + 18, y + 32, 3, colors[BLACK]);
+    }
+
+    float getFuel() const { return fuel; }
+    void setFuel(float newFuel) { fuel = newFuel > 0 ? newFuel : 0; }
+    float getMoney() const { return money; }
+    void addMoney(float amount) { money += amount; }
+};
+
+class Taxi : public PlayerCar {
+public:
+    Taxi(int startX = 0, int startY = 0, float* startColor = colors[YELLOW], float startFuel = 100.0, float startMoney = 0.0)
+        : PlayerCar(startX, startY, startColor, startFuel, startMoney) {}
+
+    void pickUp() override {
+        if (fuel > 0) {
+            cout << "Passenger picked up!" << endl;
+            fuel -= 1;
+        }
+    }
+
+    void dropOff() override {
+        if (fuel > 0) {
+            cout << "Passenger dropped off! Earned 10 units." << endl;
+            addMoney(10);
+            fuel -= 1;
+        }
+    }
+};
+
+class DeliveryCar : public PlayerCar {
+public:
+    DeliveryCar(int startX = 0, int startY = 0, float* startColor = colors[BLUE], float startFuel = 100.0, float startMoney = 0.0)
+        : PlayerCar(startX, startY, startColor, startFuel, startMoney) {}
+
+    void pickUp() override {
+        if (fuel > 0) {
+            cout << "Package picked up!" << endl;
+            fuel -= 5;
+        }
+    }
+
+    void dropOff() override {
+        if (fuel > 0) {
+            cout << "Package delivered! Earned 20 units." << endl;
+            addMoney(20);
+            fuel -= 5;
+        }
+    }
+};
+
+class OtherCar : public Vehicle {
+private:
+    int direction; // 0: up, 1: down, 2: left, 3: right
+    static const int MOVE_SPEED = 2;
+
+public:
+    OtherCar(int startX = 42, int startY = 42, float* startColor = colors[GREEN])
+        : Vehicle(startX, startY, startColor), direction(rand() % 4) {}
+
+    void move() override {
+        int new_x = x;
+        int new_y = y;
+        switch (direction) {
+            case 0: new_y += MOVE_SPEED; break; // up
+            case 1: new_y -= MOVE_SPEED; break; // down
+            case 2: new_x -= MOVE_SPEED; break; // left
+            case 3: new_x += MOVE_SPEED; break; // right
+        }
+        // Boundary checks
+        if (new_x >= 0 && new_x <= 820 && new_y >= 0 && new_y <= 800) {
+            // Road check using integer division
+            if ((new_x / 50 % 4 == 0) || (new_y / 50 % 4 == 0)) {
+                x = new_x;
+                y = new_y;
+            }
+        }
+    }
+
+    void draw() const override {
+        DrawRoundRect(x, y, 20, 40, colors[VIOLET], 10);
+        DrawCircle(x + 2, y + 4, 3, colors[BLACK]);
+        DrawCircle(x + 2, y + 32, 3, colors[BLACK]);
+        DrawCircle(x + 18, y + 4, 3, colors[BLACK]);
+        DrawCircle(x + 18, y + 32, 3, colors[BLACK]);
+    }
+};
+
+// Global instances
+Taxi playerTaxi(0, 800);
+OtherCar otherCar, otherCar2, otherCar3, otherCar4;
+FuelStation* fuelStations[3]; // Array of pointers to avoid default constructor issue
+
+void SetCanvasSize(int width, int height) {
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0, width, 0, height, -1, 1);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+}
+
+int xI = 400, yI = 400;
 
 void drawCar() {
-	DrawSquare(xI, yI, 20, colors[YELLOW]);
-	glutPostRedisplay();
+    playerTaxi.draw();
+    otherCar.draw();
+    otherCar2.draw();
+    otherCar3.draw();
+    otherCar4.draw();
 }
-
 
 bool flag = true;
 void moveCar() {
-	
-	// if (xI > 10 && flag) {
-	// 	xI -= 1;
-	// 	cout << "going left";
-	// 	if(xI < 100)
-			
-	// 		flag = false;
-
-	// }
-	// else if (xI < 810 && !flag) {
-	// 	cout << "go right";
-	// 	xI += 1;
-	// 	if (xI > 700)
-	// 		flag = true;
-	// }
+    otherCar.move();
+    otherCar2.move();
+    otherCar3.move();
+    otherCar4.move();
 }
 
-/*
- * Main Canvas drawing function.
- * */
-
-void GameDisplay()/**/{
-	// set the background color using function glClearColor.
-	// to change the background play with the red, green and blue values below.
-	// Note that r, g and b values must be in the range [0,1] where 0 means dim rid and 1 means pure red and so on.
-
-	glClearColor(1/*Red Component*/, 1,	//148.0/255/*Green Component*/,
-		1/*Blue Component*/, 1 /*Alpha component*/); // Red==Green==Blue==1 --> White Colour
-	glClear (GL_COLOR_BUFFER_BIT); //Update the colors
-	//Red Square
-	//DrawSquare(400, 20, 40, colors[RED]);
-	
-	//Green Square
-	//DrawSquare( 250 , 250 ,20,colors[GREEN]); 
-	
-	//Display Score
-	DrawString( 50, 800, "Score=0", colors[MISTY_ROSE]);
-	
-	// Trianlge Vertices v1(300,50) , v2(500,50) , v3(400,250)
-	//DrawTriangle( 300, 450 , 340, 450 , 320 , 490, colors[MISTY_ROSE] ); 
-	
-
-
-	//DrawLine(int x1, int y1, int x2, int y2, int lwidth, float *color)
-	DrawLine( 5 , 0 ,  5 , 600 , 5 , colors[BLACK] );
-	DrawLine( 80 , 80 ,  80 , 260 , 5 , colors[BLACK] );
-	DrawLine( 360 , 80 ,  360 , 260 , 5 , colors[BLACK] );
-	DrawLine( 440 , 80 ,  440 , 260 , 5 , colors[BLACK] );
-	DrawLine( 720 , 80 ,  720 , 260 , 5 , colors[BLACK] );
-	DrawLine( 795 , 0 ,  795 , 600 , 5 , colors[BLACK] );
-	DrawLine( 80 , 340 ,  80 , 520 , 5 , colors[BLACK] );
-	DrawLine( 360 , 340 ,  360 , 520 , 5 , colors[BLACK] );
-	DrawLine( 440 , 340 ,  440 , 520 , 5 , colors[BLACK] );
-	DrawLine( 720 , 340 ,  720 , 520 , 5 , colors[BLACK] );
-
-
-	DrawLine( 0 , 5 ,  800 , 5 , 5 , colors[BLACK] );
-
-	DrawLine( 80 , 80 ,  360 , 80 , 5 , colors[BLACK] );
-	DrawLine( 80 , 260 ,  360 , 260 , 5 , colors[BLACK] );
-	DrawLine( 80 , 340 ,  360 , 340 , 5 , colors[BLACK] );
-	DrawLine( 80 , 520 ,  360 , 520 , 5 , colors[BLACK] );
-	DrawLine( 440 , 80 ,  720 , 80 , 5 , colors[BLACK] );
-	DrawLine( 440 , 260 ,  720 , 260 , 5 , colors[BLACK] );
-	DrawLine( 440 , 340 ,  720 , 340 , 5 , colors[BLACK] );
-	DrawLine( 440 , 520 ,  720 , 520 , 5 , colors[BLACK] );
-
-	DrawLine( 0 , 595 ,  800 , 595 , 5 , colors[BLACK] );
-	
-	//DrawCircle(50,670,10,colors[RED]);
-	//DrawCircle(70,670,10,colors[RED]);
-	//DrawCircle(90,670,10,colors[RED]);
-	//DrawRoundRect(500,200,50,100,colors[DARK_SEA_GREEN],70);
-	//DrawRoundRect(100,200,100,50,colors[DARK_OLIVE_GREEN],20);	
-	//DrawRoundRect(100,100,50,100,colors[DARK_OLIVE_GREEN],30);
-	//DrawRoundRect(200,100,100,50,colors[LIME_GREEN],40);
-	//DrawRoundRect(350,100,100,50,colors[LIME_GREEN],20);
-	
-	drawCar();
-	glutSwapBuffers(); // do not modify this line..
-
+void GameDisplay() {
+    glClearColor(0.2, 0.2, 0.2, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    roads.drawRoads();
+    // Draw fuel stations
+    for (int i = 0; i < 3; i++) {
+        fuelStations[i]->draw();
+    }
+    DrawString(50, 800, "Score=0", colors[RED]);
+    DrawString(700, 800, "Fuel=" + to_string(static_cast<int>(playerTaxi.getFuel())), colors[BLUE]);
+    DrawString(350, 800, "Money=0", colors[GREEN]);
+    drawCar();
+    glutSwapBuffers();
 }
-
-
-
-/*This function is called (automatically) whenever any non-printable key (such as up-arrow, down-arraw)
- * is pressed from the keyboard
- *
- * You will have to add the necessary code here when the arrow keys are pressed or any other key is pressed...
- *
- * This function has three argument variable key contains the ASCII of the key pressed, while x and y tells the
- * program coordinates of mouse pointer when key was pressed.
- *
- * */
 
 void NonPrintableKeys(int key, int x, int y) {
-	if (key
-			== GLUT_KEY_LEFT /*GLUT_KEY_LEFT is constant and contains ASCII for left arrow key*/) {
-		// what to do when left key is pressed...
-		xI -= 10;
-
-	} else if (key
-			== GLUT_KEY_RIGHT /*GLUT_KEY_RIGHT is constant and contains ASCII for right arrow key*/) {
-		xI += 10;
-	} else if (key
-			== GLUT_KEY_UP/*GLUT_KEY_UP is constant and contains ASCII for up arrow key*/) {
-		yI += 10;
-	}
-
-	else if (key
-			== GLUT_KEY_DOWN/*GLUT_KEY_DOWN is constant and contains ASCII for down arrow key*/) {
-		yI -= 10;
-	}
-
-	/* This function calls the Display function to redo the drawing. Whenever you need to redraw just call
-	 * this function*/
-
-	glutPostRedisplay();
-
+    int new_x = playerTaxi.x;
+    int new_y = playerTaxi.y;
+    if (key == GLUT_KEY_LEFT) {
+        new_x -= 10;
+        playerTaxi.setFuel(playerTaxi.getFuel() - 0.25);
+    } else if (key == GLUT_KEY_RIGHT) {
+        new_x += 10;
+        playerTaxi.setFuel(playerTaxi.getFuel() - 0.25);
+    } else if (key == GLUT_KEY_UP) {
+        new_y += 10;
+        playerTaxi.setFuel(playerTaxi.getFuel() - 0.25);
+    } else if (key == GLUT_KEY_DOWN) {
+        new_y -= 10;
+        playerTaxi.setFuel(playerTaxi.getFuel() - 0.25);
+    }
+    // Boundary checks
+    if (new_x >= 0 && new_x <= 820 && new_y >= 0 && new_y <= 800) {
+        // Road check using integer division
+        if ((new_x / 50 % 4 == 0) || (new_y / 50 % 4 == 0)) {
+            playerTaxi.x = new_x;
+            playerTaxi.y = new_y;
+        }
+    }
+    glutPostRedisplay();
 }
 
-/*This function is called (automatically) whenever any printable key (such as x,b, enter, etc.)
- * is pressed from the keyboard
- * This function has three argument variable key contains the ASCII of the key pressed, while x and y tells the
- * program coordinates of mouse pointer when key was pressed.
- * */
 void PrintableKeys(unsigned char key, int x, int y) {
-	if (key == 27/* Escape key ASCII*/) {
-		exit(1); // exit the program when escape key is pressed.
-	}
-
-	if (key == 'b' || key == 'B') //Key for placing the bomb
-			{
-		//do something if b is pressed
-		cout << "b pressed" << endl;
-
-	}
-	glutPostRedisplay();
+    if (key == 27) {
+        exit(1);
+    }
+    if (key == 'b' || key == 'B') {
+        cout << "b pressed" << endl;
+    }
+    if (key == 'p' || key == 'P') {
+        playerTaxi.pickUp();
+    }
+    if (key == 'd' || key == 'D') {
+        playerTaxi.dropOff();
+    }
+    if (key == 'f' || key == 'F') {
+        // Check if near a fuel station
+        for (int i = 0; i < 3; i++) {
+            if (abs(playerTaxi.x - fuelStations[i]->getX()) <= 50 && 
+                abs(playerTaxi.y - fuelStations[i]->getY()) <= 50) {
+                if (playerTaxi.getMoney() >= 10) {
+                    playerTaxi.setFuel(100);
+                    playerTaxi.addMoney(-10);
+                    cout << "Refueled! Spent 10 units." << endl;
+                } else {
+                    cout << "Not enough money to refuel!" << endl;
+                }
+                break;
+            }
+        }
+    }
+    glutPostRedisplay();
 }
 
-
-
-/*
- * This function is called after every 1000.0/FPS milliseconds
- * (FPS is defined on in the beginning).
- * You can use this function to animate objects and control the
- * speed of different moving objects by varying the constant FPS.
- *
- * */
 void Timer(int m) {
-
-	// implement your functionality here
-	moveCar();
-
-	// once again we tell the library to call our Timer function after next 1000/FPS
-	glutTimerFunc(100, Timer, 0);
+    moveCar();
+    glutTimerFunc(100, Timer, 0);
 }
 
-/*This function is called (automatically) whenever your mouse moves witin inside the game window
- *
- * You will have to add the necessary code here for finding the direction of shooting
- *
- * This function has two arguments: x & y that tells the coordinate of current position of move mouse
- *
- * */
 void MousePressedAndMoved(int x, int y) {
-	cout << x << " " << y << endl;
-	glutPostRedisplay();
+    cout << x << " " << y << endl;
+    glutPostRedisplay();
 }
+
 void MouseMoved(int x, int y) {
-	//cout << x << " " << y << endl;
-	glutPostRedisplay();
+    glutPostRedisplay();
 }
 
-/*This function is called (automatically) whenever your mouse button is clicked witin inside the game window
- *
- * You will have to add the necessary code here for shooting, etc.
- *
- * This function has four arguments: button (Left, Middle or Right), state (button is pressed or released),
- * x & y that tells the coordinate of current position of move mouse
- *
- * */
 void MouseClicked(int button, int state, int x, int y) {
-
-	if (button == GLUT_LEFT_BUTTON) // dealing only with left button
-			{
-		cout << GLUT_DOWN << " " << GLUT_UP << endl;
-
-	} else if (button == GLUT_RIGHT_BUTTON) // dealing with right button
-			{
-			cout<<"Right Button Pressed"<<endl;
-
-	}
-	glutPostRedisplay();
+    if (button == GLUT_LEFT_BUTTON) {
+        cout << GLUT_DOWN << " " << GLUT_UP << endl;
+    } else if (button == GLUT_RIGHT_BUTTON) {
+        cout << "Right Button Pressed" << endl;
+    }
+    glutPostRedisplay();
 }
-/*
- * our gateway main function
- * */
-int main(int argc, char*argv[]) {
 
-	int width = 800, height = 600; // i have set my window size to be 800 x 600
+int main(int argc, char* argv[]) {
+    int width = 840, height = 840;
+    InitRandomizer();
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
+    glutInitWindowPosition(50, 50);
+    glutInitWindowSize(width, height);
+    glutCreateWindow("OOP Project");
+    SetCanvasSize(width, height);
 
-	InitRandomizer(); // seed the random number generator...
-	glutInit(&argc, argv); // initialize the graphics library...
-	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA); // we will be using color display mode
-	glutInitWindowPosition(50, 50); // set the initial position of our window
-	glutInitWindowSize(width, height); // set the size of our window
-	glutCreateWindow("OOP Project"); // set the title of our game window
-	SetCanvasSize(width, height); // set the number of pixels...
+    // Initialize positions for other cars and fuel stations
+    Position pos;
+    Position occupied[8]; // Store occupied building positions
+    int occupiedCount = 0;
 
-	// Register your functions to the library,
-	// you are telling the library names of function to call for different tasks.
-	//glutDisplayFunc(display); // tell library which function to call for drawing Canvas.
+    // OtherCar
+    do {
+        pos = getRandomRoadPosition();
+    } while (pos.x == playerTaxi.x && pos.y == playerTaxi.y);
+    otherCar.x = pos.x;
+    otherCar.y = pos.y;
 
-	glutDisplayFunc(GameDisplay); // tell library which function to call for drawing Canvas.
-	glutSpecialFunc(NonPrintableKeys); // tell library which function to call for non-printable ASCII characters
-	glutKeyboardFunc(PrintableKeys); // tell library which function to call for printable ASCII characters
-	// This function tells the library to call our Timer function after 1000.0/FPS milliseconds...
-	glutTimerFunc(1000.0, Timer, 0);
+    // OtherCar2
+    do {
+        pos = getRandomRoadPosition();
+    } while ((pos.x == playerTaxi.x && pos.y == playerTaxi.y) || 
+             (pos.x == otherCar.x && pos.y == otherCar.y));
+    otherCar2.x = pos.x;
+    otherCar2.y = pos.y;
 
-	glutMouseFunc(MouseClicked);
-	glutPassiveMotionFunc(MouseMoved); // Mouse
-	glutMotionFunc(MousePressedAndMoved); // Mouse
+    // OtherCar3
+    do {
+        pos = getRandomRoadPosition();
+    } while ((pos.x == playerTaxi.x && pos.y == playerTaxi.y) || 
+             (pos.x == otherCar.x && pos.y == otherCar.y) || 
+             (pos.x == otherCar2.x && pos.y == otherCar2.y));
+    otherCar3.x = pos.x;
+    otherCar3.y = pos.y;
 
-	// now handle the control to library and it will call our registered functions when
-	// it deems necessary...
-	glutMainLoop();
-	return 1;
+    // OtherCar4
+    do {
+        pos = getRandomRoadPosition();
+    } while ((pos.x == playerTaxi.x && pos.y == playerTaxi.y) || 
+             (pos.x == otherCar.x && pos.y == otherCar.y) || 
+             (pos.x == otherCar2.x && pos.y == otherCar2.y) || 
+             (pos.x == otherCar3.x && pos.y == otherCar3.y));
+    otherCar4.x = pos.x;
+    otherCar4.y = pos.y;
+
+    // Fuel stations
+    for (int i = 0; i < 3; i++) {
+        bool valid = false;
+        do {
+            pos = getRandomBuildingPosition();
+            valid = true;
+            // Check for overlap with other fuel stations
+            for (int j = 0; j < occupiedCount; j++) {
+                if (pos.x == occupied[j].x && pos.y == occupied[j].y) {
+                    valid = false;
+                    break;
+                }
+            }
+            // Check for overlap with cars (within 50x50)
+            if (valid) {
+                if ((abs(pos.x - playerTaxi.x) < 50 && abs(pos.y - playerTaxi.y) < 50) ||
+                    (abs(pos.x - otherCar.x) < 50 && abs(pos.y - otherCar.y) < 50) ||
+                    (abs(pos.x - otherCar2.x) < 50 && abs(pos.y - otherCar2.y) < 50) ||
+                    (abs(pos.x - otherCar3.x) < 50 && abs(pos.y - otherCar3.y) < 50) ||
+                    (abs(pos.x - otherCar4.x) < 50 && abs(pos.y - otherCar4.y) < 50)) {
+                    valid = false;
+                }
+            }
+        } while (!valid);
+        fuelStations[i] = new FuelStation(pos.x, pos.y);
+        occupied[occupiedCount++] = pos;
+    }
+
+    glutDisplayFunc(GameDisplay);
+    glutSpecialFunc(NonPrintableKeys);
+    glutKeyboardFunc(PrintableKeys);
+    glutTimerFunc(1000.0, Timer, 0);
+    glutMouseFunc(MouseClicked);
+    glutPassiveMotionFunc(MouseMoved);
+    glutMotionFunc(MousePressedAndMoved);
+
+    glutMainLoop();
+
+    // Clean up fuel stations
+    for (int i = 0; i < 3; i++) {
+        delete fuelStations[i];
+    }
+
+    return 1;
 }
 #endif /* RushHour_CPP_ */
