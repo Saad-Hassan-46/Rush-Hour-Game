@@ -3,7 +3,7 @@
 // Author      : Dr. Sibt Ul Hussain
 // Version     :
 // Copyright   : (c) Reserved
-// Description : Basic 2D game with boundary and road constraints
+// Description : Basic 2D game with boundary and road constraints, resized to 680x720 with 40x40 cells
 //============================================================================
 
 #ifndef RushHour_CPP_
@@ -19,38 +19,64 @@ struct Position {
     int x, y;
 };
 
+// Helper function to check if a cell is a road cell
+bool isRoadCell(int i, int j) {
+    return (i == 0 || i == 4 || i == 8 || i == 12 || i == 16 ||
+            j == 0 || j == 4 || j == 8 || j == 12 || j == 16);
+}
+
 // Function to generate a random position on a road
 Position getRandomRoadPosition() {
     while (true) {
-        int x = rand() % 821; // 0 to 820
-        int y = rand() % 801; // 0 to 800
-        if ((x / 50 % 4 == 0) || (y / 50 % 4 == 0)) {
+        int i = rand() % 17; // 0 to 16
+        int j = rand() % 17;
+        if (isRoadCell(i, j)) {
+            int x = i * 40;
+            int y = j * 40;
             return {x, y};
         }
     }
 }
 
-// Function to get a random building square position (top-left corner, adjacent to road)
-Position getRandomBuildingPosition() {
-    // Building squares start at (50, 50), (250, 50), ..., (650, 50), etc.
-    int buildingX[] = {50, 250, 450, 650};
-    int buildingY[] = {50, 250, 450, 650};
-    int i = rand() % 4; // Random row
-    int j = rand() % 4; // Random column
-    return {buildingX[i], buildingY[j]};
+// Function to get a random adjacent building cell position
+Position getRandomAdjacentBuildingPosition(const Position* occupied, int count) {
+    while (true) {
+        int i = rand() % 17;
+        int j = rand() % 17;
+        if (!isRoadCell(i, j)) {
+            // Check if adjacent to a road
+            bool adjacent = false;
+            if (i > 0 && isRoadCell(i - 1, j)) adjacent = true;
+            else if (i < 16 && isRoadCell(i + 1, j)) adjacent = true;
+            else if (j > 0 && isRoadCell(i, j - 1)) adjacent = true;
+            else if (j < 16 && isRoadCell(i, j + 1)) adjacent = true;
+            if (adjacent) {
+                int x = i * 40;
+                int y = j * 40;
+                bool available = true;
+                for (int k = 0; k < count; k++) {
+                    if (occupied[k].x == x && occupied[k].y == y) {
+                        available = false;
+                        break;
+                    }
+                }
+                if (available) {
+                    return {x, y};
+                }
+            }
+        }
+    }
 }
 
 class Roads {
 public:
     void drawRoads() {
-        // 17x17 grid, each cell 50x50 pixels
-        for (int i = 0; i < 17; ++i) {
+        for (int i = 0; i < 17; ++i) { // 17x17 grid
             for (int j = 0; j < 17; ++j) {
-                // Roads on rows and columns where index % 4 == 0
-                if (i % 4 == 0 || j % 4 == 0) {
-                    int x = i * 50;
-                    int y = j * 50;
-                    DrawSquare(x, y, 50, colors[WHITE]);
+                if (isRoadCell(i, j)) {
+                    int x = i * 40;
+                    int y = j * 40;
+                    DrawSquare(x, y, 40, colors[WHITE]);
                 }
             }
         }
@@ -66,11 +92,98 @@ public:
     FuelStation(int startX, int startY) : x(startX), y(startY) {}
 
     void draw() const {
-        DrawSquare(x, y, 50, colors[ORANGE]); // 50x50 orange square
+        DrawSquare(x, y, 40, colors[ORANGE]);
     }
 
     int getX() const { return x; }
     int getY() const { return y; }
+};
+
+class Passenger {
+private:
+    int x, y;
+    bool active;
+public:
+    Passenger(int startX, int startY) : x(startX), y(startY), active(true) {}
+
+    void draw() const {
+        if (active) {
+            DrawCircle(x + 20, y + 30, 5, colors[RED]);
+            DrawLine(x + 20, y + 25, x + 20, y + 10, 2, colors[BLUE]);
+            DrawLine(x + 20, y + 20, x + 15, y + 15, 2, colors[BLUE]);
+            DrawLine(x + 20, y + 20, x + 25, y + 15, 2, colors[BLUE]);
+            DrawLine(x + 20, y + 10, x + 15, y + 5, 2, colors[BLUE]);
+            DrawLine(x + 20, y + 10, x + 25, y + 5, 2, colors[BLUE]);
+        }
+    }
+
+    int getX() const { return x; }
+    int getY() const { return y; }
+    bool isActive() const { return active; }
+    void setActive(bool status) { active = status; }
+    void setPosition(int newX, int newY) { x = newX; y = newY; }
+};
+
+class Destination {
+private:
+    int x, y;
+    bool active;
+public:
+    Destination(int startX = 0, int startY = 0) : x(startX), y(startY), active(false) {}
+
+    void draw() const {
+        if (active) {
+            DrawSquare(x, y, 40, colors[GREEN]);
+        }
+    }
+
+    void setPosition(int newX, int newY) { x = newX; y = newY; active = true; }
+    int getX() const { return x; }
+    int getY() const { return y; }
+    bool isActive() const { return active; }
+    void setActive(bool status) { active = status; }
+};
+
+class GameState {
+private:
+    Passenger* passengers[4];
+    int activePassengers;
+    FuelStation* fuelStations[3];
+
+public:
+    GameState() : activePassengers(0) {
+        for (int i = 0; i < 4; i++) passengers[i] = nullptr;
+        for (int i = 0; i < 3; i++) fuelStations[i] = nullptr;
+    }
+
+    ~GameState() {
+        for (int i = 0; i < 4; i++) delete passengers[i];
+        for (int i = 0; i < 3; i++) delete fuelStations[i];
+    }
+
+    void setPassenger(int index, Passenger* passenger) {
+        if (index >= 0 && index < 4) passengers[index] = passenger;
+    }
+
+    Passenger* getPassenger(int index) const {
+        if (index >= 0 && index < 4) return passengers[index];
+        return nullptr;
+    }
+
+    void setActivePassengers(int count) {
+        if (count >= 0 && count <= 4) activePassengers = count;
+    }
+
+    int getActivePassengers() const { return activePassengers; }
+
+    void setFuelStation(int index, FuelStation* station) {
+        if (index >= 0 && index < 3) fuelStations[index] = station;
+    }
+
+    FuelStation* getFuelStation(int index) const {
+        if (index >= 0 && index < 3) return fuelStations[index];
+        return nullptr;
+    }
 };
 
 class Vehicle {   
@@ -88,10 +201,11 @@ class PlayerCar : public Vehicle {
 protected:
     float fuel;
     float money;
+    int score;
 
 public:
-    PlayerCar(int startX = 0, int startY = 0, float* startColor = colors[BLACK], float startFuel = 100.0, float startMoney = 0.0)
-        : Vehicle(startX, startY, startColor), fuel(startFuel), money(startMoney) {}
+    PlayerCar(int startX = 0, int startY = 0, float* startColor = colors[BLACK], float startFuel = 100.0, float startMoney = 500.0)
+        : Vehicle(startX, startY, startColor), fuel(startFuel), money(startMoney), score(0) {}
 
     virtual void pickUp() = 0;
     virtual void dropOff() = 0;
@@ -111,33 +225,85 @@ public:
     float getFuel() const { return fuel; }
     void setFuel(float newFuel) { fuel = newFuel > 0 ? newFuel : 0; }
     float getMoney() const { return money; }
-    void addMoney(float amount) { money += amount; }
+    void setMoney(float newMoney) { money = newMoney > 0 ? newMoney : 0; }
+    void addMoney(float amount) { money += amount; if (money < 0) money = 0; }
+    int getScore() const { return score; }
+    void addScore(int points) { score += points; }
 };
 
 class Taxi : public PlayerCar {
+private:
+    bool hasPassenger;
+    Destination* destination;
+    GameState& gameState;
+
 public:
-    Taxi(int startX = 0, int startY = 0, float* startColor = colors[YELLOW], float startFuel = 100.0, float startMoney = 0.0)
-        : PlayerCar(startX, startY, startColor, startFuel, startMoney) {}
+    Taxi(int startX, int startY, float* startColor, float startFuel, float startMoney, GameState& gs)
+        : PlayerCar(startX, startY, startColor, startFuel, startMoney), hasPassenger(false), destination(new Destination()), gameState(gs) {}
+
+    ~Taxi() { delete destination; }
+
+    void refuel() {
+        if (money >= 1) {
+            float fuelToAdd = 5; // 1 money = 5 fuel
+            setFuel(getFuel() + fuelToAdd);
+            addMoney(-1);
+            cout << "Refueled! +5 fuel, -1 money." << endl;
+        } else {
+            cout << "Not enough money to refuel!" << endl;
+        }
+    }
 
     void pickUp() override {
-        if (fuel > 0) {
-            cout << "Passenger picked up!" << endl;
-            fuel -= 1;
+        if (fuel > 0 && !hasPassenger) {
+            for (int i = 0; i < gameState.getActivePassengers(); i++) {
+                Passenger* p = gameState.getPassenger(i);
+                if (p && p->isActive() && 
+                    abs(x - p->getX()) <= 40 && 
+                    abs(y - p->getY()) <= 40) {
+                    p->setActive(false);
+                    hasPassenger = true;
+                    Position destPos = getRandomAdjacentBuildingPosition(nullptr, 0);
+                    destination->setPosition(destPos.x, destPos.y);
+                    cout << "Passenger picked up!" << endl;
+                    fuel -= 1;
+                    break;
+                }
+            }
         }
     }
 
     void dropOff() override {
-        if (fuel > 0) {
-            cout << "Passenger dropped off! Earned 10 units." << endl;
+        if (fuel > 0 && hasPassenger && destination->isActive() &&
+            abs(x - destination->getX()) <= 40 && 
+            abs(y - destination->getY()) <= 40) {
+            hasPassenger = false;
+            destination->setActive(false);
+            addScore(10);
             addMoney(10);
+            cout << "Passenger dropped off! +10 score, +10 money." << endl;
             fuel -= 1;
+            // Spawn new passenger
+            for (int i = 0; i < gameState.getActivePassengers(); i++) {
+                Passenger* p = gameState.getPassenger(i);
+                if (p && !p->isActive()) {
+                    Position newPos = getRandomAdjacentBuildingPosition(nullptr, 0);
+                    p->setPosition(newPos.x, newPos.y);
+                    p->setActive(true);
+                    break;
+                }
+            }
         }
     }
+
+    bool hasPassengerStatus() const { return hasPassenger; }
+    Destination* getDestination() const { return destination; }
+    GameState& getGameState() const { return gameState; }
 };
 
 class DeliveryCar : public PlayerCar {
 public:
-    DeliveryCar(int startX = 0, int startY = 0, float* startColor = colors[BLUE], float startFuel = 100.0, float startMoney = 0.0)
+    DeliveryCar(int startX = 0, int startY = 0, float* startColor = colors[BLUE], float startFuel = 100.0, float startMoney = 500.0)
         : PlayerCar(startX, startY, startColor, startFuel, startMoney) {}
 
     void pickUp() override {
@@ -169,15 +335,15 @@ public:
         int new_x = x;
         int new_y = y;
         switch (direction) {
-            case 0: new_y += MOVE_SPEED; break; // up
-            case 1: new_y -= MOVE_SPEED; break; // down
-            case 2: new_x -= MOVE_SPEED; break; // left
-            case 3: new_x += MOVE_SPEED; break; // right
+            case 0: new_y += MOVE_SPEED; break;
+            case 1: new_y -= MOVE_SPEED; break;
+            case 2: new_x -= MOVE_SPEED; break;
+            case 3: new_x += MOVE_SPEED; break;
         }
-        // Boundary checks
-        if (new_x >= 0 && new_x <= 820 && new_y >= 0 && new_y <= 800) {
-            // Road check using integer division
-            if ((new_x / 50 % 4 == 0) || (new_y / 50 % 4 == 0)) {
+        if (new_x >= 0 && new_x <= 660 && new_y >= 0 && new_y <= 640) {
+            int cell_i = new_x / 40;
+            int cell_j = new_y / 40;
+            if (cell_i >= 0 && cell_i < 17 && cell_j >= 0 && cell_j < 17 && isRoadCell(cell_i, cell_j)) {
                 x = new_x;
                 y = new_y;
             }
@@ -194,9 +360,9 @@ public:
 };
 
 // Global instances
-Taxi playerTaxi(0, 800);
+GameState gameState;
+Taxi playerTaxi(0, 640, colors[YELLOW], 100.0, 500.0, gameState);
 OtherCar otherCar, otherCar2, otherCar3, otherCar4;
-FuelStation* fuelStations[3]; // Array of pointers to avoid default constructor issue
 
 void SetCanvasSize(int width, int height) {
     glMatrixMode(GL_PROJECTION);
@@ -206,7 +372,7 @@ void SetCanvasSize(int width, int height) {
     glLoadIdentity();
 }
 
-int xI = 400, yI = 400;
+int xI = 340, yI = 360; // Center of 680x720
 
 void drawCar() {
     playerTaxi.draw();
@@ -228,13 +394,18 @@ void GameDisplay() {
     glClearColor(0.2, 0.2, 0.2, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     roads.drawRoads();
-    // Draw fuel stations
     for (int i = 0; i < 3; i++) {
-        fuelStations[i]->draw();
+        FuelStation* fs = gameState.getFuelStation(i);
+        if (fs) fs->draw();
     }
-    DrawString(50, 800, "Score=0", colors[RED]);
-    DrawString(700, 800, "Fuel=" + to_string(static_cast<int>(playerTaxi.getFuel())), colors[BLUE]);
-    DrawString(350, 800, "Money=0", colors[GREEN]);
+    for (int i = 0; i < gameState.getActivePassengers(); i++) {
+        Passenger* p = gameState.getPassenger(i);
+        if (p) p->draw();
+    }
+    playerTaxi.getDestination()->draw();
+    DrawString(50, 700, "Score=" + to_string(playerTaxi.getScore()), colors[RED]);
+    DrawString(510, 700, "Fuel=" + to_string(static_cast<int>(playerTaxi.getFuel())), colors[BLUE]);
+    DrawString(290, 700, "Money=" + to_string(static_cast<int>(playerTaxi.getMoney())), colors[GREEN]);
     drawCar();
     glutSwapBuffers();
 }
@@ -255,10 +426,10 @@ void NonPrintableKeys(int key, int x, int y) {
         new_y -= 10;
         playerTaxi.setFuel(playerTaxi.getFuel() - 0.25);
     }
-    // Boundary checks
-    if (new_x >= 0 && new_x <= 820 && new_y >= 0 && new_y <= 800) {
-        // Road check using integer division
-        if ((new_x / 50 % 4 == 0) || (new_y / 50 % 4 == 0)) {
+    if (new_x >= 0 && new_x <= 660 && new_y >= 0 && new_y <= 640) {
+        int cell_i = new_x / 40;
+        int cell_j = new_y / 40;
+        if (cell_i >= 0 && cell_i < 17 && cell_j >= 0 && cell_j < 17 && isRoadCell(cell_i, cell_j)) {
             playerTaxi.x = new_x;
             playerTaxi.y = new_y;
         }
@@ -273,26 +444,21 @@ void PrintableKeys(unsigned char key, int x, int y) {
     if (key == 'b' || key == 'B') {
         cout << "b pressed" << endl;
     }
-    if (key == 'p' || key == 'P') {
-        playerTaxi.pickUp();
-    }
-    if (key == 'd' || key == 'D') {
-        playerTaxi.dropOff();
-    }
-    if (key == 'f' || key == 'F') {
-        // Check if near a fuel station
+    if (key == ' ') { // Spacebar for refueling
         for (int i = 0; i < 3; i++) {
-            if (abs(playerTaxi.x - fuelStations[i]->getX()) <= 50 && 
-                abs(playerTaxi.y - fuelStations[i]->getY()) <= 50) {
-                if (playerTaxi.getMoney() >= 10) {
-                    playerTaxi.setFuel(100);
-                    playerTaxi.addMoney(-10);
-                    cout << "Refueled! Spent 10 units." << endl;
-                } else {
-                    cout << "Not enough money to refuel!" << endl;
-                }
+            FuelStation* fs = gameState.getFuelStation(i);
+            if (fs && abs(playerTaxi.x - fs->getX()) <= 40 && 
+                abs(playerTaxi.y - fs->getY()) <= 40) {
+                playerTaxi.refuel();
                 break;
             }
+        }
+    }
+    if (key == 13) { // Enter key for pickup/drop-off
+        if (!playerTaxi.hasPassengerStatus()) {
+            playerTaxi.pickUp();
+        } else {
+            playerTaxi.dropOff();
         }
     }
     glutPostRedisplay();
@@ -322,7 +488,7 @@ void MouseClicked(int button, int state, int x, int y) {
 }
 
 int main(int argc, char* argv[]) {
-    int width = 840, height = 840;
+    int width = 680, height = 720;
     InitRandomizer();
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
@@ -331,9 +497,8 @@ int main(int argc, char* argv[]) {
     glutCreateWindow("OOP Project");
     SetCanvasSize(width, height);
 
-    // Initialize positions for other cars and fuel stations
     Position pos;
-    Position occupied[8]; // Store occupied building positions
+    Position occupied[20];
     int occupiedCount = 0;
 
     // OtherCar
@@ -372,30 +537,42 @@ int main(int argc, char* argv[]) {
 
     // Fuel stations
     for (int i = 0; i < 3; i++) {
-        bool valid = false;
         do {
-            pos = getRandomBuildingPosition();
-            valid = true;
-            // Check for overlap with other fuel stations
+            pos = getRandomAdjacentBuildingPosition(occupied, occupiedCount);
+            bool valid = true;
             for (int j = 0; j < occupiedCount; j++) {
                 if (pos.x == occupied[j].x && pos.y == occupied[j].y) {
                     valid = false;
                     break;
                 }
             }
-            // Check for overlap with cars (within 50x50)
             if (valid) {
-                if ((abs(pos.x - playerTaxi.x) < 50 && abs(pos.y - playerTaxi.y) < 50) ||
-                    (abs(pos.x - otherCar.x) < 50 && abs(pos.y - otherCar.y) < 50) ||
-                    (abs(pos.x - otherCar2.x) < 50 && abs(pos.y - otherCar2.y) < 50) ||
-                    (abs(pos.x - otherCar3.x) < 50 && abs(pos.y - otherCar3.y) < 50) ||
-                    (abs(pos.x - otherCar4.x) < 50 && abs(pos.y - otherCar4.y) < 50)) {
+                gameState.setFuelStation(i, new FuelStation(pos.x, pos.y));
+                occupied[occupiedCount++] = pos;
+                break;
+            }
+        } while (true);
+    }
+
+    // Passengers
+    int activePassengers = 2 + rand() % 3; // 2, 3, or 4 passengers
+    gameState.setActivePassengers(activePassengers);
+    for (int i = 0; i < activePassengers; i++) {
+        do {
+            pos = getRandomAdjacentBuildingPosition(occupied, occupiedCount);
+            bool valid = true;
+            for (int j = 0; j < occupiedCount; j++) {
+                if (pos.x == occupied[j].x && pos.y == occupied[j].y) {
                     valid = false;
+                    break;
                 }
             }
-        } while (!valid);
-        fuelStations[i] = new FuelStation(pos.x, pos.y);
-        occupied[occupiedCount++] = pos;
+            if (valid) {
+                gameState.setPassenger(i, new Passenger(pos.x, pos.y));
+                occupied[occupiedCount++] = pos;
+                break;
+            }
+        } while (true);
     }
 
     glutDisplayFunc(GameDisplay);
@@ -407,11 +584,6 @@ int main(int argc, char* argv[]) {
     glutMotionFunc(MousePressedAndMoved);
 
     glutMainLoop();
-
-    // Clean up fuel stations
-    for (int i = 0; i < 3; i++) {
-        delete fuelStations[i];
-    }
 
     return 1;
 }
